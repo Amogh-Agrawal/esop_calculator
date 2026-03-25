@@ -8,11 +8,11 @@ import { Alert, AlertDescription } from './components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './components/ui/tooltip';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './components/ui/collapsible';
 import { Badge } from './components/ui/badge';
-import { 
-  InfoIcon, 
-  RotateCcwIcon, 
-  CopyIcon, 
-  DownloadIcon, 
+import {
+  InfoIcon,
+  RotateCcwIcon,
+  CopyIcon,
+  DownloadIcon,
   AlertTriangleIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
@@ -26,7 +26,7 @@ import { toast } from 'sonner';
 
 function formatCurrencyCompactINR(amount: number): string {
   const absAmount = Math.abs(amount);
-  
+
   if (absAmount >= 10000000) { // 1 Crore = 10,000,000
     return `₹${(amount / 10000000).toFixed(2)}Cr`;
   } else if (absAmount >= 100000) { // 1 Lakh = 100,000
@@ -93,10 +93,10 @@ function getEffectiveExerciseTaxRate(totalIncomeAtExercise: number): number {
   const marginalRate = getMarginalTaxRate(totalIncomeAtExercise);
   const surchargeRate = getSurchargeRate(totalIncomeAtExercise);
   const cessRate = 4;
-  
+
   // Formula: marginalRate * (1 + surcharge/100) * (1 + cess/100)
   const effectiveRate = (marginalRate / 100) * (1 + surchargeRate / 100) * (1 + cessRate / 100);
-  
+
   return effectiveRate * 100; // Return as percentage
 }
 
@@ -119,7 +119,7 @@ function calculateTaxBreakdown(
   const surchargeRate = getSurchargeRate(totalIncomeAtExercise);
   const cessRate = 4;
   const effectiveExerciseTaxRate = getEffectiveExerciseTaxRate(totalIncomeAtExercise);
-  
+
   return {
     annualSalary,
     perquisiteIncome,
@@ -181,7 +181,7 @@ function calculateESOPMetrics(inputs: CalculatorInputs): CalculatorResults {
 
   const exerciseCost = units * exercisePrice;
   const perquisiteIncome = units * (currentFMV - exercisePrice);
-  
+
   // Determine effective tax rate
   let effectiveTaxRate: number;
   if (useAutoTax) {
@@ -190,16 +190,16 @@ function calculateESOPMetrics(inputs: CalculatorInputs): CalculatorResults {
   } else {
     effectiveTaxRate = incomeTaxRate;
   }
-  
+
   const exerciseTax = perquisiteIncome * (effectiveTaxRate / 100);
   const totalCashOutflow = exerciseCost + exerciseTax;
   const paperValueAtExercise = units * currentFMV;
-  
+
   const derivedSellingFMV = useExitMultiple ? currentFMV * exitMultiple : sellingFMV;
   const saleValue = units * derivedSellingFMV;
   const capitalGain = units * (derivedSellingFMV - currentFMV);
   const ltcgTax = Math.max(capitalGain, 0) * (ltcgRate / 100);
-  
+
   const totalTaxes = exerciseTax + ltcgTax;
   const netProceeds = saleValue - ltcgTax;
   const netProfit = saleValue - exerciseCost - exerciseTax - ltcgTax;
@@ -298,11 +298,11 @@ function generateScenarioTable(
   baseInputs: CalculatorInputs
 ): ScenarioRow[] {
   const rows: ScenarioRow[] = [];
-  
+
   for (let fmv = startFMV; fmv <= endFMV; fmv += step) {
     const inputs = { ...baseInputs, currentFMV: fmv };
     const results = calculateESOPMetrics(inputs);
-    
+
     const row: ScenarioRow = {
       fmv,
       exerciseCost: results.exerciseCost,
@@ -315,7 +315,7 @@ function generateScenarioTable(
       ltcgTax: results.ltcgTax,
       netProfit: results.netProfit,
     };
-    
+
     // Add auto tax details if enabled
     if (baseInputs.useAutoTax) {
       const perquisiteIncome = baseInputs.units * (fmv - baseInputs.exercisePrice);
@@ -325,10 +325,10 @@ function generateScenarioTable(
       row.surchargeRate = getSurchargeRate(totalIncomeAtExercise);
       row.effectiveTaxRate = getEffectiveExerciseTaxRate(totalIncomeAtExercise);
     }
-    
+
     rows.push(row);
   }
-  
+
   return rows;
 }
 
@@ -338,14 +338,14 @@ function exportScenarioTableToCSV(rows: ScenarioRow[], useAutoTax: boolean): str
     'Exercise Cost',
     'Perquisite Income',
   ];
-  
+
   const autoTaxHeaders = useAutoTax ? [
     'Total Income at Exercise',
     'Marginal Tax Rate',
     'Surcharge',
     'Effective Exercise Tax Rate',
   ] : [];
-  
+
   const remainingHeaders = [
     'Exercise Tax',
     'Total Cash Outflow',
@@ -355,24 +355,24 @@ function exportScenarioTableToCSV(rows: ScenarioRow[], useAutoTax: boolean): str
     'LTCG Tax',
     'Net Profit',
   ];
-  
+
   const headers = [...baseHeaders, ...autoTaxHeaders, ...remainingHeaders];
   const csvRows = [headers.join(',')];
-  
+
   rows.forEach(row => {
     const baseData = [
       row.fmv,
       row.exerciseCost,
       row.perquisiteIncome,
     ];
-    
+
     const autoTaxData = useAutoTax ? [
       row.totalIncomeAtExercise || 0,
       row.marginalTaxRate || 0,
       row.surchargeRate || 0,
       row.effectiveTaxRate || 0,
     ] : [];
-    
+
     const remainingData = [
       row.exerciseTax,
       row.totalCashOutflow,
@@ -382,10 +382,10 @@ function exportScenarioTableToCSV(rows: ScenarioRow[], useAutoTax: boolean): str
       row.ltcgTax,
       row.netProfit,
     ];
-    
+
     csvRows.push([...baseData, ...autoTaxData, ...remainingData].join(','));
   });
-  
+
   return csvRows.join('\n');
 }
 
@@ -394,14 +394,14 @@ function exportScenarioTableToCSV(rows: ScenarioRow[], useAutoTax: boolean): str
 // ============================================================================
 
 function generateSummary(
-  inputs: CalculatorInputs, 
+  inputs: CalculatorInputs,
   results: CalculatorResults,
   taxBreakdown?: TaxBreakdown
 ): string {
   if (inputs.useAutoTax && taxBreakdown) {
     return `Based on a salary income of ${formatCurrencyExactINR(taxBreakdown.annualSalary)} and ESOP perquisite income of ${formatCurrencyExactINR(taxBreakdown.perquisiteIncome)}, the effective exercise tax rate is ${formatPercent(taxBreakdown.effectiveExerciseTaxRate)}. Your exercise cost is ${formatCurrencyCompactINR(results.exerciseCost)}, exercise tax is ${formatCurrencyCompactINR(results.exerciseTax)}, total upfront cash outflow is ${formatCurrencyCompactINR(results.totalCashOutflow)}, LTCG tax is ${formatCurrencyCompactINR(results.ltcgTax)}, and final net profit is ${formatCurrencyCompactINR(results.netProfit)}.`;
   }
-  
+
   return `You exercise ${formatNumberWithCommas(inputs.units)} units at ${formatCurrencyExactINR(inputs.exercisePrice)} with an FMV of ${formatCurrencyExactINR(inputs.currentFMV)} and sell at ${formatCurrencyExactINR(results.derivedSellingFMV)}. Your exercise cost is ${formatCurrencyCompactINR(results.exerciseCost)}, exercise tax is ${formatCurrencyCompactINR(results.exerciseTax)}, total upfront cash outflow is ${formatCurrencyCompactINR(results.totalCashOutflow)}, LTCG tax is ${formatCurrencyCompactINR(results.ltcgTax)}, and final net profit is ${formatCurrencyCompactINR(results.netProfit)}.`;
 }
 
@@ -447,17 +447,17 @@ export default function App() {
   };
 
   const results = useMemo(() => calculateESOPMetrics(inputs), [
-    units, exercisePrice, currentFMV, sellingFMV, incomeTaxRate, ltcgRate, 
+    units, exercisePrice, currentFMV, sellingFMV, incomeTaxRate, ltcgRate,
     exitMultiple, useExitMultiple, useAutoTax, annualSalary
   ]);
-  
+
   const taxBreakdown = useMemo(() => {
     if (useAutoTax) {
       return calculateTaxBreakdown(annualSalary, results.perquisiteIncome);
     }
     return undefined;
   }, [useAutoTax, annualSalary, results.perquisiteIncome]);
-  
+
   const validation = useMemo(() => validateInputs(inputs), [inputs]);
   const scenarioRows = useMemo(() => {
     if (!showScenarioTable || scenarioStep <= 0) return [];
@@ -495,7 +495,7 @@ export default function App() {
       toast.error('Enable scenario table to download CSV');
       return;
     }
-    
+
     const csv = exportScenarioTableToCSV(scenarioRows, useAutoTax);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -520,19 +520,6 @@ export default function App() {
               Estimate exercise tax, capital gains tax, upfront cash outflow, and final post-tax profit from your ESOPs.
             </p>
           </header>
-
-          {/* Info Banner */}
-          <Alert className="mb-6 border-blue-200 bg-blue-50">
-            <InfoIcon className="h-4 w-4 text-blue-600" />
-            <AlertDescription className="text-blue-800">
-              <strong>Important:</strong> Exercise tax is paid at the time of exercise on the perquisite value. 
-              LTCG tax is paid later on sale gains.
-              {useAutoTax && (
-                <> Exercise tax is estimated using your salary plus ESOP perquisite income at exercise. 
-                The calculator uses the marginal rate applicable to the ESOP income, plus surcharge and cess.</>
-              )}
-            </AlertDescription>
-          </Alert>
 
           {/* Validation Errors */}
           {validation.errors.length > 0 && (
@@ -982,75 +969,75 @@ export default function App() {
                         <BreakdownRow label="Exercise Price" value={`₹${exercisePrice}`} exact="" />
                         <BreakdownRow label="Current FMV" value={`₹${currentFMV}`} exact="" />
                         <BreakdownRow label="Selling FMV" value={`₹${results.derivedSellingFMV}`} exact="" />
-                        <BreakdownRow 
-                          label="Exercise Cost" 
-                          value={formatCurrencyCompactINR(results.exerciseCost)} 
+                        <BreakdownRow
+                          label="Exercise Cost"
+                          value={formatCurrencyCompactINR(results.exerciseCost)}
                           exact={formatCurrencyExactINR(results.exerciseCost)}
-                          highlighted 
+                          highlighted
                         />
-                        <BreakdownRow 
-                          label="Paper Value at Exercise" 
-                          value={formatCurrencyCompactINR(results.paperValueAtExercise)} 
-                          exact={formatCurrencyExactINR(results.paperValueAtExercise)} 
+                        <BreakdownRow
+                          label="Paper Value at Exercise"
+                          value={formatCurrencyCompactINR(results.paperValueAtExercise)}
+                          exact={formatCurrencyExactINR(results.paperValueAtExercise)}
                         />
-                        <BreakdownRow 
-                          label="Perquisite Income" 
-                          value={formatCurrencyCompactINR(results.perquisiteIncome)} 
-                          exact={formatCurrencyExactINR(results.perquisiteIncome)} 
+                        <BreakdownRow
+                          label="Perquisite Income"
+                          value={formatCurrencyCompactINR(results.perquisiteIncome)}
+                          exact={formatCurrencyExactINR(results.perquisiteIncome)}
                         />
-                        <BreakdownRow 
-                          label="Exercise Tax" 
-                          value={formatCurrencyCompactINR(results.exerciseTax)} 
+                        <BreakdownRow
+                          label="Exercise Tax"
+                          value={formatCurrencyCompactINR(results.exerciseTax)}
                           exact={formatCurrencyExactINR(results.exerciseTax)}
-                          negative 
+                          negative
                         />
-                        <BreakdownRow 
-                          label="Total Cash Outflow" 
-                          value={formatCurrencyCompactINR(results.totalCashOutflow)} 
+                        <BreakdownRow
+                          label="Total Cash Outflow"
+                          value={formatCurrencyCompactINR(results.totalCashOutflow)}
                           exact={formatCurrencyExactINR(results.totalCashOutflow)}
-                          highlighted 
+                          highlighted
                         />
-                        <BreakdownRow 
-                          label="Sale Value" 
-                          value={formatCurrencyCompactINR(results.saleValue)} 
+                        <BreakdownRow
+                          label="Sale Value"
+                          value={formatCurrencyCompactINR(results.saleValue)}
                           exact={formatCurrencyExactINR(results.saleValue)}
-                          highlighted 
+                          highlighted
                         />
-                        <BreakdownRow 
-                          label="Capital Gain" 
-                          value={formatCurrencyCompactINR(results.capitalGain)} 
-                          exact={formatCurrencyExactINR(results.capitalGain)} 
+                        <BreakdownRow
+                          label="Capital Gain"
+                          value={formatCurrencyCompactINR(results.capitalGain)}
+                          exact={formatCurrencyExactINR(results.capitalGain)}
                         />
-                        <BreakdownRow 
-                          label="LTCG Tax" 
-                          value={formatCurrencyCompactINR(results.ltcgTax)} 
+                        <BreakdownRow
+                          label="LTCG Tax"
+                          value={formatCurrencyCompactINR(results.ltcgTax)}
                           exact={formatCurrencyExactINR(results.ltcgTax)}
-                          negative 
+                          negative
                         />
-                        <BreakdownRow 
-                          label="Total Taxes" 
-                          value={formatCurrencyCompactINR(results.totalTaxes)} 
+                        <BreakdownRow
+                          label="Total Taxes"
+                          value={formatCurrencyCompactINR(results.totalTaxes)}
                           exact={formatCurrencyExactINR(results.totalTaxes)}
-                          negative 
+                          negative
                         />
-                        <BreakdownRow 
-                          label="Net Proceeds" 
-                          value={formatCurrencyCompactINR(results.netProceeds)} 
+                        <BreakdownRow
+                          label="Net Proceeds"
+                          value={formatCurrencyCompactINR(results.netProceeds)}
                           exact={formatCurrencyExactINR(results.netProceeds)}
-                          highlighted 
+                          highlighted
                         />
-                        <BreakdownRow 
-                          label="Net Profit" 
-                          value={formatCurrencyCompactINR(results.netProfit)} 
+                        <BreakdownRow
+                          label="Net Profit"
+                          value={formatCurrencyCompactINR(results.netProfit)}
                           exact={formatCurrencyExactINR(results.netProfit)}
                           featured
                           positive={results.netProfit > 0}
                         />
-                        <BreakdownRow 
-                          label="Post-tax Multiple" 
-                          value={formatMultiple(results.postTaxMultiple)} 
+                        <BreakdownRow
+                          label="Post-tax Multiple"
+                          value={formatMultiple(results.postTaxMultiple)}
                           exact=""
-                          highlighted 
+                          highlighted
                         />
                       </tbody>
                     </table>
@@ -1149,9 +1136,9 @@ export default function App() {
               <CopyIcon className="h-4 w-4 mr-2" />
               Copy summary
             </Button>
-            <Button 
-              onClick={handleDownloadCSV} 
-              variant="outline" 
+            <Button
+              onClick={handleDownloadCSV}
+              variant="outline"
               className="shadow-lg bg-white"
               disabled={!showScenarioTable || scenarioRows.length === 0}
             >
@@ -1182,24 +1169,24 @@ interface MetricCardProps {
   badge?: string;
 }
 
-function MetricCard({ 
-  label, 
-  value, 
-  tooltip, 
-  highlighted, 
-  featured, 
+function MetricCard({
+  label,
+  value,
+  tooltip,
+  highlighted,
+  featured,
   positive,
   negative,
   isMultiple,
   valueFormatter,
   badge
 }: MetricCardProps) {
-  const displayValue = valueFormatter 
-    ? valueFormatter(value) 
-    : isMultiple 
-    ? formatMultiple(value)
-    : formatCurrencyCompactINR(value);
-  
+  const displayValue = valueFormatter
+    ? valueFormatter(value)
+    : isMultiple
+      ? formatMultiple(value)
+      : formatCurrencyCompactINR(value);
+
   const exactValue = isMultiple ? '' : formatCurrencyExactINR(value);
 
   let cardClass = 'shadow-md hover:shadow-lg transition-shadow';
