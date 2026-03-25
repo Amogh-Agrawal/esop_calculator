@@ -7,13 +7,13 @@ import { Switch } from './components/ui/switch';
 import { Alert, AlertDescription } from './components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './components/ui/tooltip';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './components/ui/collapsible';
+import { Badge } from './components/ui/badge';
 import { 
   InfoIcon, 
   RotateCcwIcon, 
   CopyIcon, 
   DownloadIcon, 
   AlertTriangleIcon,
-  TrendingUpIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
   ChevronUpIcon
@@ -61,6 +61,77 @@ function formatNumberWithCommas(value: number): string {
 }
 
 // ============================================================================
+// TAX CALCULATION HELPERS
+// ============================================================================
+
+/**
+ * Returns the marginal tax rate based on total income using new regime style brackets
+ */
+function getMarginalTaxRate(totalIncome: number): number {
+  if (totalIncome <= 300000) return 0;
+  if (totalIncome <= 600000) return 5;
+  if (totalIncome <= 900000) return 10;
+  if (totalIncome <= 1200000) return 15;
+  if (totalIncome <= 1500000) return 20;
+  return 30;
+}
+
+/**
+ * Returns the surcharge rate based on total income
+ */
+function getSurchargeRate(totalIncome: number): number {
+  if (totalIncome <= 5000000) return 0;
+  if (totalIncome <= 10000000) return 10;
+  if (totalIncome <= 20000000) return 15;
+  return 25;
+}
+
+/**
+ * Calculates the effective exercise tax rate including surcharge and cess
+ */
+function getEffectiveExerciseTaxRate(totalIncomeAtExercise: number): number {
+  const marginalRate = getMarginalTaxRate(totalIncomeAtExercise);
+  const surchargeRate = getSurchargeRate(totalIncomeAtExercise);
+  const cessRate = 4;
+  
+  // Formula: marginalRate * (1 + surcharge/100) * (1 + cess/100)
+  const effectiveRate = (marginalRate / 100) * (1 + surchargeRate / 100) * (1 + cessRate / 100);
+  
+  return effectiveRate * 100; // Return as percentage
+}
+
+interface TaxBreakdown {
+  annualSalary: number;
+  perquisiteIncome: number;
+  totalIncomeAtExercise: number;
+  marginalTaxRate: number;
+  surchargeRate: number;
+  cessRate: number;
+  effectiveExerciseTaxRate: number;
+}
+
+function calculateTaxBreakdown(
+  annualSalary: number,
+  perquisiteIncome: number
+): TaxBreakdown {
+  const totalIncomeAtExercise = annualSalary + perquisiteIncome;
+  const marginalTaxRate = getMarginalTaxRate(totalIncomeAtExercise);
+  const surchargeRate = getSurchargeRate(totalIncomeAtExercise);
+  const cessRate = 4;
+  const effectiveExerciseTaxRate = getEffectiveExerciseTaxRate(totalIncomeAtExercise);
+  
+  return {
+    annualSalary,
+    perquisiteIncome,
+    totalIncomeAtExercise,
+    marginalTaxRate,
+    surchargeRate,
+    cessRate,
+    effectiveExerciseTaxRate,
+  };
+}
+
+// ============================================================================
 // CALCULATION ENGINE
 // ============================================================================
 
@@ -73,6 +144,8 @@ interface CalculatorInputs {
   ltcgRate: number;
   exitMultiple: number;
   useExitMultiple: boolean;
+  useAutoTax: boolean;
+  annualSalary: number;
 }
 
 interface CalculatorResults {
@@ -89,6 +162,7 @@ interface CalculatorResults {
   netProceeds: number;
   netProfit: number;
   postTaxMultiple: number;
+  effectiveTaxRate: number;
 }
 
 function calculateESOPMetrics(inputs: CalculatorInputs): CalculatorResults {
@@ -101,11 +175,23 @@ function calculateESOPMetrics(inputs: CalculatorInputs): CalculatorResults {
     ltcgRate,
     exitMultiple,
     useExitMultiple,
+    useAutoTax,
+    annualSalary,
   } = inputs;
 
   const exerciseCost = units * exercisePrice;
   const perquisiteIncome = units * (currentFMV - exercisePrice);
-  const exerciseTax = perquisiteIncome * (incomeTaxRate / 100);
+  
+  // Determine effective tax rate
+  let effectiveTaxRate: number;
+  if (useAutoTax) {
+    const totalIncomeAtExercise = annualSalary + perquisiteIncome;
+    effectiveTaxRate = getEffectiveExerciseTaxRate(totalIncomeAtExercise);
+  } else {
+    effectiveTaxRate = incomeTaxRate;
+  }
+  
+  const exerciseTax = perquisiteIncome * (effectiveTaxRate / 100);
   const totalCashOutflow = exerciseCost + exerciseTax;
   const paperValueAtExercise = units * currentFMV;
   
@@ -133,6 +219,7 @@ function calculateESOPMetrics(inputs: CalculatorInputs): CalculatorResults {
     netProceeds,
     netProfit,
     postTaxMultiple,
+    effectiveTaxRate,
   };
 }
 
@@ -156,6 +243,10 @@ function validateInputs(inputs: CalculatorInputs): ValidationResult {
 
   if (inputs.currentFMV < inputs.exercisePrice) {
     errors.push('Current FMV cannot be less than Exercise Price');
+  }
+
+  if (inputs.useAutoTax && inputs.annualSalary < 0) {
+    errors.push('Annual salary cannot be negative');
   }
 
   if (inputs.useExitMultiple) {
@@ -187,6 +278,10 @@ interface ScenarioRow {
   fmv: number;
   exerciseCost: number;
   perquisiteIncome: number;
+  totalIncomeAtExercise?: number;
+  marginalTaxRate?: number;
+  surchargeRate?: number;
+  effectiveTaxRate?: number;
   exerciseTax: number;
   totalCashOutflow: number;
   sellingFMV: number;
@@ -208,7 +303,7 @@ function generateScenarioTable(
     const inputs = { ...baseInputs, currentFMV: fmv };
     const results = calculateESOPMetrics(inputs);
     
-    rows.push({
+    const row: ScenarioRow = {
       fmv,
       exerciseCost: results.exerciseCost,
       perquisiteIncome: results.perquisiteIncome,
@@ -219,17 +314,39 @@ function generateScenarioTable(
       capitalGain: results.capitalGain,
       ltcgTax: results.ltcgTax,
       netProfit: results.netProfit,
-    });
+    };
+    
+    // Add auto tax details if enabled
+    if (baseInputs.useAutoTax) {
+      const perquisiteIncome = baseInputs.units * (fmv - baseInputs.exercisePrice);
+      const totalIncomeAtExercise = baseInputs.annualSalary + perquisiteIncome;
+      row.totalIncomeAtExercise = totalIncomeAtExercise;
+      row.marginalTaxRate = getMarginalTaxRate(totalIncomeAtExercise);
+      row.surchargeRate = getSurchargeRate(totalIncomeAtExercise);
+      row.effectiveTaxRate = getEffectiveExerciseTaxRate(totalIncomeAtExercise);
+    }
+    
+    rows.push(row);
   }
   
   return rows;
 }
 
-function exportScenarioTableToCSV(rows: ScenarioRow[]): string {
-  const headers = [
+function exportScenarioTableToCSV(rows: ScenarioRow[], useAutoTax: boolean): string {
+  const baseHeaders = [
     'FMV',
     'Exercise Cost',
     'Perquisite Income',
+  ];
+  
+  const autoTaxHeaders = useAutoTax ? [
+    'Total Income at Exercise',
+    'Marginal Tax Rate',
+    'Surcharge',
+    'Effective Exercise Tax Rate',
+  ] : [];
+  
+  const remainingHeaders = [
     'Exercise Tax',
     'Total Cash Outflow',
     'Selling FMV',
@@ -239,13 +356,24 @@ function exportScenarioTableToCSV(rows: ScenarioRow[]): string {
     'Net Profit',
   ];
   
+  const headers = [...baseHeaders, ...autoTaxHeaders, ...remainingHeaders];
   const csvRows = [headers.join(',')];
   
   rows.forEach(row => {
-    csvRows.push([
+    const baseData = [
       row.fmv,
       row.exerciseCost,
       row.perquisiteIncome,
+    ];
+    
+    const autoTaxData = useAutoTax ? [
+      row.totalIncomeAtExercise || 0,
+      row.marginalTaxRate || 0,
+      row.surchargeRate || 0,
+      row.effectiveTaxRate || 0,
+    ] : [];
+    
+    const remainingData = [
       row.exerciseTax,
       row.totalCashOutflow,
       row.sellingFMV,
@@ -253,7 +381,9 @@ function exportScenarioTableToCSV(rows: ScenarioRow[]): string {
       row.capitalGain,
       row.ltcgTax,
       row.netProfit,
-    ].join(','));
+    ];
+    
+    csvRows.push([...baseData, ...autoTaxData, ...remainingData].join(','));
   });
   
   return csvRows.join('\n');
@@ -263,7 +393,15 @@ function exportScenarioTableToCSV(rows: ScenarioRow[]): string {
 // SUMMARY TEXT GENERATOR
 // ============================================================================
 
-function generateSummary(inputs: CalculatorInputs, results: CalculatorResults): string {
+function generateSummary(
+  inputs: CalculatorInputs, 
+  results: CalculatorResults,
+  taxBreakdown?: TaxBreakdown
+): string {
+  if (inputs.useAutoTax && taxBreakdown) {
+    return `Based on a salary income of ${formatCurrencyExactINR(taxBreakdown.annualSalary)} and ESOP perquisite income of ${formatCurrencyExactINR(taxBreakdown.perquisiteIncome)}, the effective exercise tax rate is ${formatPercent(taxBreakdown.effectiveExerciseTaxRate)}. Your exercise cost is ${formatCurrencyCompactINR(results.exerciseCost)}, exercise tax is ${formatCurrencyCompactINR(results.exerciseTax)}, total upfront cash outflow is ${formatCurrencyCompactINR(results.totalCashOutflow)}, LTCG tax is ${formatCurrencyCompactINR(results.ltcgTax)}, and final net profit is ${formatCurrencyCompactINR(results.netProfit)}.`;
+  }
+  
   return `You exercise ${formatNumberWithCommas(inputs.units)} units at ${formatCurrencyExactINR(inputs.exercisePrice)} with an FMV of ${formatCurrencyExactINR(inputs.currentFMV)} and sell at ${formatCurrencyExactINR(results.derivedSellingFMV)}. Your exercise cost is ${formatCurrencyCompactINR(results.exerciseCost)}, exercise tax is ${formatCurrencyCompactINR(results.exerciseTax)}, total upfront cash outflow is ${formatCurrencyCompactINR(results.totalCashOutflow)}, LTCG tax is ${formatCurrencyCompactINR(results.ltcgTax)}, and final net profit is ${formatCurrencyCompactINR(results.netProfit)}.`;
 }
 
@@ -286,6 +424,10 @@ export default function App() {
   const [scenarioEndFMV, setScenarioEndFMV] = useState(400);
   const [scenarioStep, setScenarioStep] = useState(10);
 
+  // New state for auto tax calculation
+  const [useAutoTax, setUseAutoTax] = useState(false);
+  const [annualSalary, setAnnualSalary] = useState(3000000);
+
   // State for collapsible sections
   const [isFormulaOpen, setIsFormulaOpen] = useState(false);
   const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
@@ -300,16 +442,29 @@ export default function App() {
     ltcgRate,
     exitMultiple,
     useExitMultiple,
+    useAutoTax,
+    annualSalary,
   };
 
-  const results = useMemo(() => calculateESOPMetrics(inputs), [inputs]);
+  const results = useMemo(() => calculateESOPMetrics(inputs), [
+    units, exercisePrice, currentFMV, sellingFMV, incomeTaxRate, ltcgRate, 
+    exitMultiple, useExitMultiple, useAutoTax, annualSalary
+  ]);
+  
+  const taxBreakdown = useMemo(() => {
+    if (useAutoTax) {
+      return calculateTaxBreakdown(annualSalary, results.perquisiteIncome);
+    }
+    return undefined;
+  }, [useAutoTax, annualSalary, results.perquisiteIncome]);
+  
   const validation = useMemo(() => validateInputs(inputs), [inputs]);
   const scenarioRows = useMemo(() => {
     if (!showScenarioTable || scenarioStep <= 0) return [];
     return generateScenarioTable(scenarioStartFMV, scenarioEndFMV, scenarioStep, inputs);
   }, [showScenarioTable, scenarioStartFMV, scenarioEndFMV, scenarioStep, inputs]);
 
-  const summary = useMemo(() => generateSummary(inputs, results), [inputs, results]);
+  const summary = useMemo(() => generateSummary(inputs, results, taxBreakdown), [inputs, results, taxBreakdown]);
 
   // Handlers
   const handleReset = () => {
@@ -325,6 +480,8 @@ export default function App() {
     setScenarioStartFMV(300);
     setScenarioEndFMV(400);
     setScenarioStep(10);
+    setUseAutoTax(false);
+    setAnnualSalary(3000000);
     toast.success('Reset to default values');
   };
 
@@ -339,7 +496,7 @@ export default function App() {
       return;
     }
     
-    const csv = exportScenarioTableToCSV(scenarioRows);
+    const csv = exportScenarioTableToCSV(scenarioRows, useAutoTax);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -365,7 +522,17 @@ export default function App() {
           </header>
 
           {/* Info Banner */}
-          
+          <Alert className="mb-6 border-blue-200 bg-blue-50">
+            <InfoIcon className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-blue-800">
+              <strong>Important:</strong> Exercise tax is paid at the time of exercise on the perquisite value. 
+              LTCG tax is paid later on sale gains.
+              {useAutoTax && (
+                <> Exercise tax is estimated using your salary plus ESOP perquisite income at exercise. 
+                The calculator uses the marginal rate applicable to the ESOP income, plus surcharge and cess.</>
+              )}
+            </AlertDescription>
+          </Alert>
 
           {/* Validation Errors */}
           {validation.errors.length > 0 && (
@@ -475,30 +642,59 @@ export default function App() {
                   </div>
                 )}
 
-                <div>
-                  <Label htmlFor="incomeTaxRate">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="flex items-center gap-1 cursor-help">
-                          Income tax rate on perquisite (%)
-                          <InfoIcon className="h-3 w-3" />
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="max-w-xs">
-                          Tax rate applied on perquisite income (FMV - Exercise Price) at exercise. Example: 30% income tax + 10% surcharge + 4% cess = 34.32%
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </Label>
-                  <Input
-                    id="incomeTaxRate"
-                    type="number"
-                    step="0.01"
-                    value={incomeTaxRate}
-                    onChange={(e) => setIncomeTaxRate(Number(e.target.value))}
-                    className="mt-1.5"
-                  />
+                <div className="pt-4 border-t">
+                  <div className="flex items-center space-x-2 mb-4">
+                    <Switch
+                      id="useAutoTax"
+                      checked={useAutoTax}
+                      onCheckedChange={setUseAutoTax}
+                    />
+                    <Label htmlFor="useAutoTax" className="cursor-pointer font-semibold">
+                      Auto calculate tax from salary + ESOP
+                    </Label>
+                  </div>
+
+                  {useAutoTax ? (
+                    <div>
+                      <Label htmlFor="annualSalary">Annual Salary Income (₹)</Label>
+                      <Input
+                        id="annualSalary"
+                        type="number"
+                        value={annualSalary}
+                        onChange={(e) => setAnnualSalary(Number(e.target.value))}
+                        className="mt-1.5"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        Your salary income excluding ESOP perquisite income
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <Label htmlFor="incomeTaxRate">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="flex items-center gap-1 cursor-help">
+                              Income tax rate on perquisite (%)
+                              <InfoIcon className="h-3 w-3" />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="max-w-xs">
+                              Tax rate applied on perquisite income (FMV - Exercise Price) at exercise. Example: 30% income tax + 10% surcharge + 4% cess = 34.32%
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Input
+                        id="incomeTaxRate"
+                        type="number"
+                        step="0.01"
+                        value={incomeTaxRate}
+                        onChange={(e) => setIncomeTaxRate(Number(e.target.value))}
+                        className="mt-1.5"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -581,6 +777,53 @@ export default function App() {
 
             {/* Right Column - Formulas and Metrics */}
             <div className="lg:col-span-2 space-y-6">
+              {/* Derived Tax Breakdown Card */}
+              {useAutoTax && taxBreakdown && (
+                <Card className="shadow-lg bg-gradient-to-br from-green-50 to-emerald-50 border-green-200">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      Derived Tax Breakdown
+                      <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
+                        Auto
+                      </Badge>
+                    </CardTitle>
+                    <CardDescription>Calculated from your salary + ESOP perquisite</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <div className="text-slate-600 mb-1">Salary Income</div>
+                        <div className="font-semibold">{formatCurrencyExactINR(taxBreakdown.annualSalary)}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-600 mb-1">ESOP Perquisite Income</div>
+                        <div className="font-semibold">{formatCurrencyExactINR(taxBreakdown.perquisiteIncome)}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-600 mb-1">Total Income at Exercise</div>
+                        <div className="font-semibold">{formatCurrencyExactINR(taxBreakdown.totalIncomeAtExercise)}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-600 mb-1">Marginal Tax Rate</div>
+                        <div className="font-semibold">{formatPercent(taxBreakdown.marginalTaxRate)}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-600 mb-1">Surcharge</div>
+                        <div className="font-semibold">{formatPercent(taxBreakdown.surchargeRate)}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-600 mb-1">Cess</div>
+                        <div className="font-semibold">{formatPercent(taxBreakdown.cessRate)}</div>
+                      </div>
+                      <div className="col-span-2 pt-3 border-t border-green-200">
+                        <div className="text-slate-600 mb-1">Effective Exercise Tax Rate</div>
+                        <div className="font-bold text-lg text-green-700">{formatPercent(taxBreakdown.effectiveExerciseTaxRate)}</div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Formula Summary Card - Collapsible */}
               <Collapsible open={isFormulaOpen} onOpenChange={setIsFormulaOpen}>
                 <Card className="shadow-lg">
@@ -612,7 +855,7 @@ export default function App() {
                         </div>
                         <div className="font-mono text-xs bg-slate-50 p-3 rounded-md">
                           <div className="text-slate-600 mb-1">Exercise Tax</div>
-                          <div>Perquisite Income × Income Tax Rate</div>
+                          <div>Perquisite Income × {useAutoTax ? 'Effective' : 'Income'} Tax Rate</div>
                         </div>
                         <div className="font-mono text-xs bg-slate-50 p-3 rounded-md">
                           <div className="text-slate-600 mb-1">Sale Value</div>
@@ -652,6 +895,7 @@ export default function App() {
                   value={results.exerciseTax}
                   tooltip="Tax paid on perquisite income at the time of exercise"
                   negative
+                  badge={useAutoTax ? `Auto: ${formatPercent(results.effectiveTaxRate)}` : `Manual: ${formatPercent(incomeTaxRate)}`}
                 />
                 <MetricCard
                   label="Total Cash Outflow"
@@ -833,6 +1077,14 @@ export default function App() {
                         <th className="text-left py-3 px-2 font-semibold">FMV</th>
                         <th className="text-right py-3 px-2 font-semibold">Exercise Cost</th>
                         <th className="text-right py-3 px-2 font-semibold">Perquisite</th>
+                        {useAutoTax && (
+                          <>
+                            <th className="text-right py-3 px-2 font-semibold">Total Income</th>
+                            <th className="text-right py-3 px-2 font-semibold">Marginal Tax</th>
+                            <th className="text-right py-3 px-2 font-semibold">Surcharge</th>
+                            <th className="text-right py-3 px-2 font-semibold">Effective Tax</th>
+                          </>
+                        )}
                         <th className="text-right py-3 px-2 font-semibold">Exercise Tax</th>
                         <th className="text-right py-3 px-2 font-semibold">Cash Outflow</th>
                         <th className="text-right py-3 px-2 font-semibold">Selling FMV</th>
@@ -848,6 +1100,14 @@ export default function App() {
                           <td className="py-2.5 px-2 font-medium">₹{row.fmv}</td>
                           <td className="text-right py-2.5 px-2">{formatCurrencyCompactINR(row.exerciseCost)}</td>
                           <td className="text-right py-2.5 px-2">{formatCurrencyCompactINR(row.perquisiteIncome)}</td>
+                          {useAutoTax && (
+                            <>
+                              <td className="text-right py-2.5 px-2">{formatCurrencyCompactINR(row.totalIncomeAtExercise || 0)}</td>
+                              <td className="text-right py-2.5 px-2">{formatPercent(row.marginalTaxRate || 0)}</td>
+                              <td className="text-right py-2.5 px-2">{formatPercent(row.surchargeRate || 0)}</td>
+                              <td className="text-right py-2.5 px-2">{formatPercent(row.effectiveTaxRate || 0)}</td>
+                            </>
+                          )}
                           <td className="text-right py-2.5 px-2 text-red-600">{formatCurrencyCompactINR(row.exerciseTax)}</td>
                           <td className="text-right py-2.5 px-2 font-medium">{formatCurrencyCompactINR(row.totalCashOutflow)}</td>
                           <td className="text-right py-2.5 px-2">₹{row.sellingFMV}</td>
@@ -919,6 +1179,7 @@ interface MetricCardProps {
   negative?: boolean;
   isMultiple?: boolean;
   valueFormatter?: (value: number) => string;
+  badge?: string;
 }
 
 function MetricCard({ 
@@ -930,7 +1191,8 @@ function MetricCard({
   positive,
   negative,
   isMultiple,
-  valueFormatter 
+  valueFormatter,
+  badge
 }: MetricCardProps) {
   const displayValue = valueFormatter 
     ? valueFormatter(value) 
@@ -968,6 +1230,11 @@ function MetricCard({
         <div className={valueClass}>{displayValue}</div>
         {exactValue && (
           <div className="text-xs text-slate-500 mt-1">{exactValue}</div>
+        )}
+        {badge && (
+          <Badge variant="outline" className="mt-2 text-xs">
+            {badge}
+          </Badge>
         )}
       </CardContent>
     </Card>
